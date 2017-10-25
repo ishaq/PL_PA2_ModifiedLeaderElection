@@ -16,9 +16,27 @@
 run(Config) -> 
     {ok, Log} = file:open("output.txt", [write]),
     erlang:group_leader(Log, self()),
-
-
     NodeConfigs = lists:map(fun supervisor_convert_to_node_state/1, parser:read(Config)),
+    supervisor_kickoff_simulation(NodeConfigs, Log).
+    
+supervisor_kickoff_simulation(NodeConfigs, _) 
+    when length(NodeConfigs) == 0 ->
+    io:format("I did expect someone to run this with 1 node, but with no nodes? Shocking Sir! Shocking!~n");
+
+supervisor_kickoff_simulation(NodeConfigs, _) 
+    when length(NodeConfigs) == 1 ->
+    Insults = ["Your code is so bad, Richard Stallman suggested that you keep it proprietary.",
+    "Your code runs so slow your data brings sleeping bags to camp-out in the cache lines.",
+    "Your code is so bad your child processes disowned you.",
+    "Your code looks as though you have been playing bingo with anti-patterns.",
+    "I never believed in chaos theory until I saw your variable naming convention!",
+    "The best stairs you ever drew was done by using thread profiler.",
+    "I've never seen a priest code before, I mean, you must be a priest right? Your code is running on pure faith and no logic..."],
+    io:format("Seriously Mate? You're trying to run simulation on 1 node?~n~n\t~p~n",
+        [lists:nth(rand:uniform(length(Insults)), Insults)]),
+    exit(normal);
+
+supervisor_kickoff_simulation(NodeConfigs, Log) ->
     %io:format("Starting...~n", []),
     Nodes = lists:map(fun supervisor_boot_node/1, NodeConfigs),
     lists:foreach(fun({PID, _}) -> erlang:group_leader(Log, PID) end, Nodes),
