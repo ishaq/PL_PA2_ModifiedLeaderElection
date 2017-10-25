@@ -14,9 +14,14 @@
 -record(leader, {id, pid, elected_on}).
 
 run(Config) -> 
+    {ok, Log} = file:open("output.txt", [write]),
+    erlang:group_leader(Log, self()),
+
+
     NodeConfigs = lists:map(fun supervisor_convert_to_node_state/1, parser:read(Config)),
     %io:format("Starting...~n", []),
     Nodes = lists:map(fun supervisor_boot_node/1, NodeConfigs),
+    lists:foreach(fun({PID, _}) -> erlang:group_leader(Log, PID) end, Nodes),
     supervisor_kickoff_election(1, Nodes, 0),
     %io:format("Waiting for election to finish...~n", []),
     supervisor_wait_for_election_to_finish(Nodes, 0, []).
