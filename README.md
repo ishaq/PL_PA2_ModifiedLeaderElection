@@ -4,8 +4,8 @@ Radius Growth Algorithm with democracy sprinkled with autocracy: http://www.cs.r
 Implemenation is in Erlang
 
 ## Authors
-Muhammad Ishaq (ishaqm@rpi.edu)
-Daniel Park (parkd5@rpi.edu)
+* Muhammad Ishaq (ishaqm@rpi.edu)
+* Daniel Park (parkd5@rpi.edu)
 
 ## Features
 * Concurrent implementation
