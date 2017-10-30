@@ -10,7 +10,7 @@ Daniel Park (parkd5@rpi.edu)
 ## Features
 * Concurrent implementation
 * Distributed implementation
-* Chides incorrect certain incorrect usage
+* Chides certain incorrect usage
 
 ## Known Issues
 * No currently known issues
