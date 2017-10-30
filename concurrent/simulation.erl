@@ -10,7 +10,7 @@
 -record(probe, {prober_id, priority, leader_flag=true, ttl=1, direction, election_time}).
 -record(reply, {prober_id, leader_flag, direction, election_time}).
 -record(node_state, {info = #node_info{}, supervisor, elected_earlier = false, 
-        revolted_nodes = [], revolt_threshold = 0, current_election_time}).
+    revolt_threshold = 0, current_election_time}).
 -record(leader, {id, pid, elected_on}).
 
 run(Config) -> 
@@ -132,6 +132,7 @@ supervisor_kickoff_election(_, _, _) ->
 
 
 
+
 % ---- Node Functions -----
 
 node_start(State) ->
@@ -147,7 +148,7 @@ node_wait_for_election_kickoff_message(State) ->
             UpdatedState = State#node_state{current_election_time = Time},
             node_start_election(LeftPID, RightPID, UpdatedState);
         {'EXIT', _, _} ->
-            %io:format("~p exiting, got ~p~n", [State#node_state.info#node_info.name, {'EXIT', _, _}]),
+            %io:format("~p exiting, got ~p~n", [State#node_state.info#node_info.name, {'EXIT', Reason, From}]),
             exit(normal)
     end.
 
@@ -179,7 +180,7 @@ node_handle_election_messages(LeftPID, RightPID, State, AmIActive, TTL, Replies)
     %io:format("~p(~p): State: ~p, AmIActive: ~p, TTL: ~p, ReplyStatus: ~p~n", [State#node_state.info#node_info.name, self(), State, AmIActive, TTL, Replies]),
     receive
         {'EXIT', _, _} ->
-            %io:format("~p exiting, got ~p~n", [State#node_state.info#node_info.name, {'EXIT', _, _}]),
+            %io:format("~p exiting, got ~p~n", [State#node_state.info#node_info.name, {'EXIT', Reason, From}]),
             exit(normal);
 
         {leader_elected, Leader, RevoltThreshold} ->
@@ -189,11 +190,10 @@ node_handle_election_messages(LeftPID, RightPID, State, AmIActive, TTL, Replies)
             %    LeaderId, Time]),
             case LeaderId == State#node_state.info#node_info.node_id of
                 true -> 
-                    UpdatedState = State#node_state{elected_earlier = true, revolt_threshold = RevoltThreshold,
-                        revolted_nodes = []},
+                    UpdatedState = State#node_state{elected_earlier = true, revolt_threshold = RevoltThreshold},
                     ICanRevolt = false,
                     % send tick message
-                    LeftPID ! {tick, Time+1};
+                    LeftPID ! {tick, Time+1, []};
 
                 false -> 
                     UpdatedState = State,
@@ -345,26 +345,21 @@ node_handle_reply_message(_, DestNode, Reply, State)
         DestNode ! {reply, Reply}.
 
 
-
-
 % ------ Node's functions during clock ticking --------
 node_handle_tick_messages(LeftPID, RightPID, State, Leader, ICanRevolt) ->
     %io:format("~p(~p) HANDLE TICK~n", [State#node_state.info#node_info.name, self()]),
     LeaderId = Leader#leader.id,
-    LeaderPid = Leader#leader.pid,
     MyID = State#node_state.info#node_info.node_id,
     MyTolerance =  State#node_state.info#node_info.tolerance,
     receive
         {'EXIT', _, _} ->
-            %io:format("~p exiting, got ~p~n", [State#node_state.info#node_info.name, {'EXIT', _, _}]),
+            %io:format("~p exiting, got ~p~n", [State#node_state.info#node_info.name, {'EXIT', Reason, From}]),
             exit(normal);
 
-        {tick, Time} ->
+        {tick, Time, RevoltedNodes} ->
             %io:format("~p(~p) TICKING: time: ~p~n", [State#node_state.info#node_info.name, self(), Time]),
             RevoltThreshold = State#node_state.revolt_threshold,
-            RevoltedNodes = State#node_state.revolted_nodes,
             NewTime = Time + 1,
-
             case MyID == LeaderId of 
                 true ->
                 case length(RevoltedNodes) >= RevoltThreshold of
@@ -373,29 +368,26 @@ node_handle_tick_messages(LeftPID, RightPID, State, Leader, ICanRevolt) ->
                         State#node_state.supervisor ! {leader_deposed, Time},
                         node_handle_tick_messages(LeftPID, RightPID, State, Leader, ICanRevolt);
                     false -> 
-                        LeftPID ! {tick, NewTime},
+                        LeftPID ! {tick, NewTime, RevoltedNodes},
                         node_handle_tick_messages(LeftPID, RightPID, State, Leader, ICanRevolt)
                 end;
                 false ->
                     CurrentRegime = Time - Leader#leader.elected_on,
+                    % case ICanRevolt of 
+                    %     true -> io:format("~p(~p): Time: ~p, CurrentRegime: ~p, MyTolerance: ~p~n", [State#node_state.info#node_info.name, self(), Time, CurrentRegime, MyTolerance]);
+                    %     false -> ok
+                    % end,
                     case ICanRevolt andalso CurrentRegime >= MyTolerance of 
                         true -> 
                             io:format("ID=~p revolted at t=~p~n", [State#node_state.info#node_info.node_id, Time]),
-                            LeaderPid ! {revolt, Time, State#node_state.info},
-                            UpdatedICanRevolt = false;
+                            UpdatedICanRevolt = false,
+                            LeftPID ! {tick, NewTime, lists:append(RevoltedNodes, [State#node_state.info])};
                         false -> 
-                            UpdatedICanRevolt = ICanRevolt
+                            UpdatedICanRevolt = ICanRevolt,
+                            LeftPID ! {tick, NewTime, RevoltedNodes}
                     end,
-                    LeftPID ! {tick, NewTime},
                     node_handle_tick_messages(LeftPID, RightPID, State, Leader, UpdatedICanRevolt)
             end;
-
-        {revolt, _, NodeInfo} -> 
-            UpdatedRevoltedNodes = lists:append(State#node_state.revolted_nodes, [NodeInfo]),
-            %io:format("~p(~p) LEADER: received REVOLT at: ~p from ~p. ~p nodes have revolted!.~n", 
-            %    [State#node_state.info#node_info.name, self(), Time, NodeInfo, length(UpdatedRevoltedNodes)]),
-            UpdatedState = State#node_state{revolted_nodes = UpdatedRevoltedNodes},
-            node_handle_tick_messages(LeftPID, RightPID, UpdatedState, Leader, ICanRevolt);
 
         {start_election, LeftPID, RightPID, Time} ->
             %io:format("~p(~p): start_election ~p, ~p, ~p~n", 
